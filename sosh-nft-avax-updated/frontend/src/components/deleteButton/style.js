@@ -1,0 +1,4 @@
+import { StyledCardButton } from "components/styled/styledCardButton";
+import styled from "styled-components";
+
+export const StyledDeleteButton = styled(StyledCardButton)``;

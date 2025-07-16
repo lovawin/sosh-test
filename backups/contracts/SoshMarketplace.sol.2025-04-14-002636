@@ -1,0 +1,367 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/utils/ERC721HolderUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
+import "../Interfaces/ISoshRoleManager.sol";
+import "./utils/SoshMarketFee.sol";
+
+/**
+ * @title A market to buy or sell NFTs.
+ */
+import "hardhat/console.sol";
+
+contract SoshMarketplace is
+    Initializable,
+    ContextUpgradeable,
+    UUPSUpgradeable,
+    ERC721HolderUpgradeable,
+    SoshMarketFee,
+    ReentrancyGuardUpgradeable
+{
+    enum SaleType {
+        Auction,
+        Direct
+    }
+
+    enum SaleStatus {
+        Closed,
+        Open,
+        Cancel
+    }
+
+    /**
+     * @notice structure to be used for update sale items
+     */
+    struct UpdateSale {
+        uint256 saleId;
+    }
+
+    struct ReserveSale {
+        address payable seller;
+        address payable buyer;
+        uint256 askPrice;
+        uint256 receivedPrice;
+        uint256 tokenId;
+        SaleType saleType;
+        SaleStatus status;
+        uint256 startTime;
+        uint256 endTime;
+    }
+
+    mapping(uint256 => ReserveSale) public reserveSale;
+    uint256 public saleIdTracker;
+    uint256 public maxSaleDuration;
+    uint256 public minSaleDuration;
+    uint256 public minTimeDifference;
+    uint256 public minSaleUpdateDuration;
+    uint256 public extensionDuration;
+    address payable public treasuryContractAddress;
+    address public nftContractAddress;
+
+    modifier validateInputs(uint256 startTime, uint256 endTime) {
+        require(
+            (minTimeDifference + _getCurrentTimestamp()) <= startTime,
+            "Sosh: Start time less than minimum time difference"
+        );
+        require(
+            (endTime - startTime) <= maxSaleDuration && (endTime - startTime) >= minSaleDuration,
+            "Sosh: sale Duration not allowed"
+        );
+        _;
+    }
+
+    modifier onlySeller(uint256 saleId) {
+        require(reserveSale[saleId].seller == _msgSender(), "Sosh: not seller");
+        _;
+    }
+
+    modifier onlyAdmin() {
+        require(
+            ISoshRoleManager(treasuryContractAddress).isAdmin(_msgSender()), "Sosh: caller does not have the Admin role"
+        );
+        _;
+    }
+
+    event SaleCreated(uint256 saleId);
+    event SaleUpdated(uint256 saleId,uint256 newAskPrice, uint newStartTime, uint newEndTime);
+    event SaleClosed(uint256 saleId);
+    event ReserveAuctionBidPlaced(uint256 indexed auctionId, address indexed bidder, uint256 amount, uint256 endTime);
+
+    event ReserveSaleCanceledByAdmin(uint256 indexed auctionId, string reason);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @notice Called once to configure the contract after the initial deployment.
+     * @dev This farms the initialize call out to inherited contracts as needed.
+     */
+    function initialize(
+        address _soshNFT,
+        address payable _soshTreasury,
+        uint256 primarySaleFee,
+        uint256 secondarySaleFee,
+        uint256 uppercapPrimarySaleFee,
+        uint256 uppercapSecondarySaleFee
+    ) external initializer {
+        __Context_init();
+        __UUPSUpgradeable_init();
+        __ERC721Holder_init();
+        _SoshMarketFee_initialize(primarySaleFee, secondarySaleFee, uppercapPrimarySaleFee, uppercapSecondarySaleFee);
+        treasuryContractAddress = _soshTreasury;
+        nftContractAddress = _soshNFT;
+        maxSaleDuration = 20 days;
+        minTimeDifference = 30 minutes;
+        minSaleDuration = 60 minutes;
+        extensionDuration = 15 minutes;
+        minSaleUpdateDuration = 1 days;
+    }
+
+    // Fallback function to receive Ether
+    receive() external payable {}
+
+    function adminUpdateTimeConfigs(
+        uint256 _maxSaleDuration,
+        uint256 _minSaleDuration,
+        uint256 _minTimeDifference,
+        uint256 _extensionDuration,
+        uint256 _minSaleUpdateDuration
+    ) external onlyAdmin {
+        maxSaleDuration = _maxSaleDuration;
+        minTimeDifference = _minTimeDifference;
+        minSaleDuration = _minSaleDuration;
+        extensionDuration = _extensionDuration;
+        minSaleUpdateDuration = _minSaleUpdateDuration;
+    }
+
+    /**
+     * @notice allows Admin for Emergency withdrawal of assets.
+     */
+    function adminEmergencyWithdrawal(uint256[] memory tokenIds, address payable receiver) external onlyAdmin {
+        _adminEmergencyWithdrawal(tokenIds, receiver);
+    }
+
+    /**
+     * @notice allows admin to update sosh NFT smart contract address
+     */
+    function adminUpdateSoshNftNode(address _soshNft) external onlyAdmin {
+        nftContractAddress = _soshNft;
+    }
+
+    /**
+     * @notice allows admin to update sosh Treasury smart contract address
+     */
+    function adminUpdateSoshTreasuryNode(address payable _soshTreasury) external onlyAdmin {
+        treasuryContractAddress = _soshTreasury;
+    }
+
+    function adminUpdateSoshMarketFees(uint256 _primarySoshFeeBasisPoints, uint256 _secondarySoshFeeBasisPoints)
+        external
+        onlyAdmin
+    {
+        _updateMarketFees(_primarySoshFeeBasisPoints, _secondarySoshFeeBasisPoints);
+    }
+
+    /**
+     * @notice Creates a sale for the given NFTs.
+     * The NFTs are held in escrow until the sale is finalized or bought by buyers.
+     */
+    function createSale(SaleType saleType, uint256 tokenId, uint256 askPrice, uint256 startTime, uint256 endTime)
+        external
+        validateInputs(startTime, endTime)
+    {
+        uint256 saleId = incrementId();
+        reserveSale[saleId].saleType = saleType;
+        reserveSale[saleId].status = SaleStatus.Open;
+        reserveSale[saleId].seller = payable(_msgSender());
+        reserveSale[saleId].tokenId = tokenId;
+        reserveSale[saleId].askPrice = askPrice;
+        reserveSale[saleId].startTime = startTime;
+        reserveSale[saleId].endTime = endTime;
+        IERC721(nftContractAddress).safeTransferFrom(_msgSender(), address(this), tokenId);
+
+        emit SaleCreated(saleId);
+    }
+
+    function updateSale(
+        uint256 saleId,
+        uint256 newAskPrice,
+        uint256 newStartTime,
+        uint256 newEndTime
+    ) external {
+        require(reserveSale[saleId].status == SaleStatus.Open, "Sale is not open");
+
+        require(reserveSale[saleId].seller == _msgSender(), "Caller is not the seller");
+
+        
+        require(
+            block.timestamp + minSaleUpdateDuration < reserveSale[saleId].startTime,
+            "You can only update the sale Not started"
+        );
+
+        // Update the sale with new details
+        reserveSale[saleId].askPrice = newAskPrice;
+        reserveSale[saleId].startTime = newStartTime;
+        reserveSale[saleId].endTime = newEndTime;
+
+        emit SaleUpdated(saleId, newAskPrice, newStartTime, newEndTime);
+    }
+
+    /**
+     * @notice users can buy NFT once a sale starts,
+     * Transfers sosh platform fee to treasury
+     * Transfers owner revenue to seller
+     * Transfers royalty fee to treasury
+     */
+    function buyNFT(uint256 saleId) external payable nonReentrant {
+        ReserveSale storage directSale = reserveSale[saleId];
+        require(directSale.status == SaleStatus.Open, "Sosh: Sale not open");
+        require(directSale.saleType == SaleType.Direct, "Sosh : Only direct sale");
+        require(directSale.startTime <= _getCurrentTimestamp(), "Sosh: Sale not started");
+
+        require(directSale.endTime >= _getCurrentTimestamp(), "Sosh: Sale ended");
+        require(directSale.askPrice == msg.value, "Sosh: Ask price mismatch");
+
+        finalizeSale(directSale.tokenId, directSale.seller, payable(_msgSender()), directSale.askPrice);
+
+        directSale.buyer = payable(_msgSender());
+        directSale.receivedPrice = msg.value;
+        directSale.status = SaleStatus.Closed;
+        emit SaleClosed(saleId);
+    }
+
+    /**
+     * @notice Place bid on an Auction.
+     * If this is the first bid on the auction, than the bid amount can be greater than or equal to ask price.
+     * If there is already an outstanding bid, the previous bidder will be refunded at this time
+     * and if the bid is placed in the final moment of the auction, the countdown will be extended.
+     */
+    function placeBid(uint256 saleId) external payable nonReentrant {
+        ReserveSale storage auction = reserveSale[saleId];
+        require(auction.status == SaleStatus.Open, "Sosh: Sale not open");
+        require(auction.saleType == SaleType.Auction, "Sosh : Only for Auction");
+        require(auction.startTime <= _getCurrentTimestamp(), "Sosh: Sale not started");
+
+        require(auction.endTime >= _getCurrentTimestamp(), "Sosh: Sale ended");
+
+        if (auction.buyer == address(0)) {
+            require(auction.askPrice <= msg.value, "Sosh: Bid must be at least the ask price");
+        } else {
+            address payable buyer = auction.buyer;
+            require(buyer != _msgSender(), "NFTMarketReserveAuction: You already have an outstanding bid");
+
+            require(msg.value > auction.receivedPrice + 1 wei, "NFTMarketReserveAuction: Bid amount too low");
+            transferNative(buyer, auction.receivedPrice);
+        }
+        auction.receivedPrice = msg.value;
+        auction.buyer = payable(_msgSender());
+
+        // When a bid outbids another, check to see if a time extension should apply.
+        if (auction.endTime - _getCurrentTimestamp() < extensionDuration) {
+            auction.endTime = _getCurrentTimestamp() + extensionDuration;
+        }
+        emit ReserveAuctionBidPlaced(saleId, _msgSender(), msg.value, auction.endTime);
+    }
+
+    /**
+     * @notice Once the Auction is expired.
+     * This will send the NFT to buyer and funds to seller.
+     */
+    function finalizeAuction(uint256 saleId) external nonReentrant {
+        ReserveSale storage auction = reserveSale[saleId];
+        require(auction.status == SaleStatus.Open, "Sosh: Sale not open");
+        require(auction.saleType == SaleType.Auction, "Sosh : Only direct sale");
+        require(auction.endTime < _getCurrentTimestamp(), "Sosh: Sale is not over");
+        finalizeSale(auction.tokenId, auction.seller, auction.buyer, auction.receivedPrice);
+        auction.status = SaleStatus.Closed;
+        emit SaleClosed(saleId);
+    }
+
+    /**
+     * @notice helper function to calculate sosh platform fee and
+     * seller revenue for each token id to be bought from the sale
+     * then return total calculated seller revenue and
+     * total calculated sosh platform fee of all token ids
+     */
+    function finalizeSale(uint256 tokenId, address payable seller, address buyer, uint256 amount) internal {
+        (uint256 totalFee, uint256 ownerRevenue) = _getFees(nftContractAddress, tokenId, seller, amount);
+        transferNative(treasuryContractAddress, totalFee);
+        transferNative(seller, ownerRevenue);
+        IERC721(nftContractAddress).safeTransferFrom(address(this), buyer, tokenId);
+    }
+
+    /**
+     * @notice helper function that allows admin to emrgency withdraw
+     */
+    function _adminEmergencyWithdrawal(uint256[] memory tokenIds, address payable receiver) internal {
+        require(tokenIds.length > 0, "Sosh: tokenids lenght is 0");
+        require(receiver != address(0), "Sosh: receiver is zero");
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            IERC721(nftContractAddress).safeTransferFrom(address(this), receiver, tokenIds[i]);
+        }
+
+        (bool success,) = receiver.call{value: address(this).balance}("");
+        require(success, "Emergency Withdraw: Transfer failed");
+    }
+
+    /**
+     * @notice Allows Sosh Admin to cancel an auction, refunding the funds and returning the NFT to the seller.
+     * This should only be used for extreme cases such as DMCA takedown requests. The reason should always be provided.
+     */
+    function adminCancelReserveSale(uint256 saleId, string memory reason) external onlyAdmin {
+        require(bytes(reason).length > 0, "Sosh: Include a reason for this cancellation");
+        ReserveSale memory saleInfo = reserveSale[saleId];
+        require(saleInfo.status == SaleStatus.Open, "Sosh: Sale not open");
+
+        IERC721(nftContractAddress).safeTransferFrom(address(this), saleInfo.seller, saleInfo.tokenId);
+        if (saleInfo.saleType == SaleType.Auction && saleInfo.buyer != address(0)) {
+            transferNative(saleInfo.buyer, saleInfo.receivedPrice);
+        }
+        saleInfo.status = SaleStatus.Cancel;
+        emit ReserveSaleCanceledByAdmin(saleId, reason);
+    }
+
+    /**
+     * @notice Finalizes expired sale and transfers the NFTs back to the seller if no buyer is found.
+     * Only open sales that have passed their end time are considered for finalization.
+     * For auction sales, the NFT is transferred to the highest bidder if there is one,
+     * otherwise, it is returned to the seller.
+     * For direct sales, if the NFT was not bought, it is returned to the seller.
+     */
+    function finalizeExpiredSale(uint256 saleId) external {
+        ReserveSale storage sale = reserveSale[saleId];
+        require(sale.status == SaleStatus.Open, "Sosh: Sale not open");
+        require(sale.endTime < _getCurrentTimestamp(), "Sosh: Sale is still active");
+        require(sale.buyer == address(0), "Sosh: Sale has a buyer");
+
+        // Transfer the NFT back to the seller
+        IERC721(nftContractAddress).safeTransferFrom(address(this), sale.seller, sale.tokenId);
+
+        sale.status = SaleStatus.Closed;
+        emit SaleClosed(saleId);
+    }
+
+    function transferNative(address payable receiver, uint256 amount) internal {
+        (bool success,) = receiver.call{value: amount}("");
+        require(success, "Sosh: Transfer failed");
+    }
+
+    function _getCurrentTimestamp() internal view returns (uint256) {
+        return block.timestamp;
+    }
+
+    function incrementId() internal returns (uint256) {
+        return ++saleIdTracker;
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyAdmin {}
+}

@@ -1,0 +1,43 @@
+::-moz-selection {
+  background: #005bea !important;
+  color: #fff !important;
+}
+::-webkit-selection {
+  background: #005bea !important;
+  color: #fff !important;
+}
+::selection {
+  background: #005bea !important;
+  color: #fff !important;
+}
+body {
+  font-family: Poppins !important;
+  background: gainsboro !important;
+  /* overflow-x: hidden;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale; */
+}
+/*
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
+    monospace;
+} */
+
+.App {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  height: 100%;
+}
+
+.App .app-header {
+  flex-shrink: 0;
+}
+
+.App .app-body {
+  flex-grow: 1;
+}

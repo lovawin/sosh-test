@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  test_redis:
+    container_name: test-redis
+    image: redis:alpine
+    command: >
+      redis-server
+      --requirepass KHTSGEQSHIH8JG9Q
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - '6382:6379'
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "KHTSGEQSHIH8JG9Q", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  test_app:
+    container_name: test-bullmq-app
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      - REDIS_HOST=test_redis
+      - REDIS_PORT=6379
+      - REDIS_PASS=KHTSGEQSHIH8JG9Q
+    depends_on:
+      test_redis:
+        condition: service_healthy
+    command: sh -c "npm install && node test-suite.js"

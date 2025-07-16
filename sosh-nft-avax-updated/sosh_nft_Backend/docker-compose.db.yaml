@@ -1,0 +1,38 @@
+version: "3.7"
+services:
+  sosh_mongo_db:
+    container_name: sosh-mongo-db
+    image: "mongo:latest"
+    restart: always
+    env_file:
+      - ./config/dev/.env
+    ports:
+      - "27017:27017"
+    volumes:
+      - sosh_mongo:/data/db
+      
+  mongo-express:
+    image: mongo-express
+    restart: always
+    ports:
+      - 8500:8081
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://sosh_mongo_db:27017/soshnew1
+
+  sosh_redis_db:
+    container_name: sosh-redis-db
+    image: "redis:alpine"
+    restart: always
+    ports:
+      - "6381:6379"
+
+  sosh_redis_commander:
+    container_name: sosh-redis-commander
+    image: "rediscommander/redis-commander:latest"
+    restart: always
+    environment:
+    - REDIS_HOSTS=local:sosh_redis_db
+    ports:
+    - "5053:8081"
+volumes:
+    sosh_mongo:

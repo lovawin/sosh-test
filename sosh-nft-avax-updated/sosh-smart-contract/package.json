@@ -1,0 +1,35 @@
+{
+  "name": "sosh-nft",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "deploy-treasury": "npx hardhat run scripts/deploy_soshTreasury.js --network avalanche",
+    "upgrade-treasury": "npx hardhat run scripts/upgrade_soshTreasury.js --network avalanche",
+    "deploy-minting": "npx hardhat run scripts/deploy_soshNft.js --network avalanche",
+    "upgrade-minting": "npx hardhat run scripts/upgrade_soshNft.js --network avalanche",
+    "deploy-marketplace": "npx hardhat run scripts/deploy_soshMarket.js --network avalanche",
+    "upgrade-marketplace": "npx hardhat run scripts/upgrade_soshMarket.js --network avalanche",
+    "verify": "npx hardhat verify --network avalanche",
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.6",
+    "@nomicfoundation/hardhat-ethers": "^3.0.6",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.11",
+    "@nomicfoundation/hardhat-verify": "^2.0.7",
+    "@openzeppelin/contracts": "^5.0.2",
+    "@openzeppelin/contracts-upgradeable": "^5.3.0",
+    "@openzeppelin/hardhat-upgrades": "^3.1.0",
+    "dotenv": "^16.4.5",
+    "verify": "^0.1.2"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.4"
+  }
+}

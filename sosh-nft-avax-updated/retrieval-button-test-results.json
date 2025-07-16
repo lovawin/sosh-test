@@ -1,0 +1,29 @@
+{
+  "timestamp": "2025-05-08T02:01:23.751Z",
+  "results": [
+    {
+      "user": "Original seller",
+      "userAddress": "0x7411e7942f4C8271D4E636429f374997fdaede17",
+      "sellerAddress": "0x7411e7942f4C8271D4E636429f374997fdaede17",
+      "isUserSeller": true,
+      "isExpired": true,
+      "shouldShowRetrieveButton": true
+    },
+    {
+      "user": "Random user",
+      "userAddress": "0x7411e7942f4c8271d4e636429f374997fdaede17",
+      "sellerAddress": "0x7411e7942f4C8271D4E636429f374997fdaede17",
+      "isUserSeller": true,
+      "isExpired": true,
+      "shouldShowRetrieveButton": true
+    },
+    {
+      "user": "Zero address",
+      "userAddress": "0x0000000000000000000000000000000000000000",
+      "sellerAddress": "0x7411e7942f4C8271D4E636429f374997fdaede17",
+      "isUserSeller": false,
+      "isExpired": true,
+      "shouldShowRetrieveButton": false
+    }
+  ]
+}

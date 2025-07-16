@@ -1,0 +1,114 @@
+const winston = require('winston');
+require('winston-daily-rotate-file');
+const { createLogger } = require('../config/logConfig');
+const { formatAuthLog, maskSensitiveData } = require('../formatters/logFormatter');
+
+class DBLogger {
+  constructor() {
+    this.logger = createLogger('db');
+  }
+
+  logQuery(operation, collection, details, duration) {
+    // Handle the old format for backward compatibility
+    if (arguments.length === 2) {
+      const query = arguments[0];
+      const queryDuration = arguments[1];
+      const maskedQuery = maskSensitiveData(query);
+      this.logger.info({
+        type: 'QUERY',
+        query: maskedQuery,
+        duration: queryDuration
+      });
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[DB] Query (${queryDuration}ms): ${maskedQuery}`);
+      }
+      return;
+    }
+
+    // Handle the new format with more detailed logging
+    const queryInfo = {
+      operation,
+      collection,
+      details: maskSensitiveData(details),
+      duration
+    };
+
+    this.logger.info({
+      type: 'QUERY',
+      ...queryInfo
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[DB] ${operation} on ${collection} (${duration}ms): ${JSON.stringify(maskSensitiveData(details))}`);
+    }
+  }
+
+  logError(error, query) {
+    const maskedQuery = query ? maskSensitiveData(query) : null;
+    this.logger.error({
+      type: 'DB_ERROR',
+      error: {
+        message: error.message,
+        stack: error.stack,
+        code: error.code
+      },
+      query: maskedQuery
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.error(`[DB ERROR] ${error.message}`);
+      if (maskedQuery) {
+        console.error(`Query: ${maskedQuery}`);
+      }
+      if (error.stack) {
+        console.error(error.stack);
+      }
+    }
+  }
+
+  logConnection(event) {
+    this.logger.info({
+      type: 'DB_CONNECTION',
+      event
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[DB] Connection ${event}`);
+    }
+  }
+
+  mongoosePlugin() {
+    const logger = this;
+    return function(schema) {
+      // Log queries
+      ['find', 'findOne', 'findOneAndUpdate', 'findOneAndDelete'].forEach(method => {
+        schema.pre(method, function() {
+          this._queryStartTime = Date.now();
+        });
+
+        schema.post(method, function() {
+          const duration = Date.now() - this._queryStartTime;
+          logger.logQuery(this.getQuery ? this.getQuery() : method, duration);
+        });
+      });
+
+      // Log document saves
+      schema.pre('save', function() {
+        this._saveStartTime = Date.now();
+      });
+
+      schema.post('save', function() {
+        const duration = Date.now() - this._saveStartTime;
+        logger.logQuery('Document save', duration);
+      });
+
+      // Log errors
+      schema.on('error', function(err) {
+        logger.logError(err);
+      });
+    };
+  }
+}
+
+module.exports = new DBLogger();

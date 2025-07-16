@@ -1,0 +1,406 @@
+import React, { useCallback, useEffect, useState } from "react";
+import { StyledConfirmModal } from "components/confirmModal/style";
+import ContentRenderer from "./ContentRenderer";
+import { createSale, updateSale } from "common/helpers/nftMarketPlaceFunctions";
+import { useDispatch, useSelector } from "react-redux";
+import { ethers } from "ethers";
+import { toast } from "react-toastify";
+import {
+  startLoginLoading,
+  stopLoginLoading,
+} from "store/loginStore/actionCreator";
+import { getChainId } from "common/helpers/web3Helpers";
+import { getConfigTime } from "services/userServices";
+import { apiHandler } from "services/axios";
+import { saleCreated, updateSaleCreated } from "services/assetsServices";
+import { setLoading, unSetLoading } from "store/Actions/data";
+import LoadingBubbleCircle from "components/LoadingBubbleCircle";
+import { contactInstance } from "common/methodInstance";
+import formatTimestamp from "common/helpers/timerHelpers";
+import marketplaceLogger from "services/marketplaceLogger";
+import errorLogger from "services/errorLogger";
+
+const ModalForSellNFT = ({
+  showModal,
+  handleClose,
+  token_id,
+  name,
+  data,
+  isEditPrice,
+}) => {
+  console.log("data from sher", data);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const isUpdate = useSelector((state) => state.data.isUpdate);
+  console.log("isUpdate", isUpdate);
+  const [timeConfigData, setTimeConfigData] = useState();
+
+  const handleModalClose = () => {
+    handleClose();
+    setStep("select");
+  };
+
+  const [step, setStep] = useState("select");
+  const [formData, setFormData] = useState({
+    askPrice: "",
+    startTime: "",
+    endTime: "",
+    saleType: null,
+  });
+  console.log("formData", formData);
+
+  useEffect(() => {
+    if (isEditPrice) {
+      setFormData({
+        askPrice: ethers?.utils.formatEther(data?.askPrice),
+        startTime: formatTimestamp(data?.startTime),
+        endTime: formatTimestamp(data?.endTime),
+      });
+    }
+  }, [data?.askPrice, data?.endTime, data?.startTime, isEditPrice]);
+  const dispatch = useDispatch();
+  const saleCreatedMutation = useCallback((data) => {
+    console.log("data", data);
+    apiHandler(() => saleCreated(data), {
+      onSuccess: async (res) => {
+        console.log("res from saleCreatedMuation", await res);
+        // onLikeToggle && onLikeToggle(id);
+      },
+      onError: (error) => {
+        console.log("error", error);
+        toast("Error while creating sale", {
+          position: "top-right",
+          type: "error",
+        });
+      },
+      final: () => {},
+    });
+  }, []);
+  const updateSaleMutation = useCallback((data) => {
+    console.log("data", data);
+    apiHandler(() => updateSaleCreated(data), {
+      onSuccess: async (res) => {
+        console.log("res from saleCreatedMuation", await res);
+        // onLikeToggle && onLikeToggle(id);
+      },
+      onError: (error) => {
+        console.log("error", error);
+        toast("Error while creating sale", {
+          position: "top-right",
+          type: "error",
+        });
+      },
+      final: () => {},
+    });
+  }, []);
+
+  const { address } = useSelector((state) => state.login);
+
+  const getTimeConfigs = useCallback(() => {
+    apiHandler(() => getConfigTime(), {
+      onSuccess: (data) => {
+        console.log("data from time config", data);
+        setTimeConfigData(data);
+      },
+      onError: (error, response) => {
+        console.log("error,response", error, response);
+      },
+      final: () => {},
+    });
+  }, []);
+  useEffect(() => {
+    getTimeConfigs();
+  }, [getTimeConfigs]);
+
+  const handleInputChange = (e) => {
+    e.preventDefault();
+    const { name, value } = e.target;
+    setFormData({
+      ...formData,
+      [name]: name === "price" ? value : value,
+    });
+  };
+
+  const handleOptionChange = (option) => {
+    setSelectedOption(option);
+    setFormData({ ...formData, saleType: option });
+  };
+
+  const handleSale = async (formData) => {
+    const { startTime, endTime } = formData;
+    console.log("timeConfigData", timeConfigData);
+
+    const startTimestamp = new Date(startTime).getTime() / 1000;
+    const endTimestamp = new Date(endTime).getTime() / 1000;
+    const currentTime = Date.now() / 1000;
+
+    const minTimeDifference = Number(timeConfigData?.minSaleDuration);
+    if (startTimestamp <= Math.floor(currentTime)) {
+      toast.error("Start time must be greater than the current time");
+      return;
+    }
+
+    if (endTimestamp - startTimestamp < minTimeDifference) {
+      toast.error(
+        `End time must be at least ${timeConfigData?.minTimeDifference} minutes after start time`
+      );
+      return;
+    }
+
+    const maxTimeDuration = Number(timeConfigData?.maxSaleDuration);
+
+    if (endTimestamp - startTimestamp > maxTimeDuration) {
+      toast.error("Maximum duration allowed is 24 hours");
+      return;
+    }
+
+    try {
+      const updatedFormData = {
+        ...formData,
+        startTime: startTimestamp,
+        endTime: endTimestamp,
+        tokenID: Number(token_id),
+      };
+
+      // Log listing attempt
+      await marketplaceLogger.logListingAttempt(
+        token_id,
+        {
+          saleType: formData.saleType,
+          price: formData.askPrice,
+          startTime: startTimestamp,
+          endTime: endTimestamp,
+          userAddress: address
+        }
+      );
+
+      dispatch(setLoading());
+
+      let res = await createSale(updatedFormData, address);
+      setStep("confirmation");
+      console.log("res from createSale", res?.transactionHash);
+      
+      // Log listing success
+      await marketplaceLogger.logListingResult(
+        token_id,
+        res?.events?.SaleCreated?.returnValues?.saleId || 'unknown',
+        true,
+        {
+          transactionHash: res?.transactionHash,
+          saleType: formData.saleType,
+          price: formData.askPrice
+        }
+      );
+      
+      if (res?.transactionHash) {
+        setFormData({
+          askPrice: "",
+          startTime: "",
+          endTime: "",
+          saleType: null,
+        });
+      }
+      saleCreatedMutation(res?.transactionHash);
+      setTimeout(() => {
+        handleModalClose();
+      }, 2000);
+      dispatch(unSetLoading());
+    } catch (error) {
+      dispatch(unSetLoading());
+
+      // Log listing failure
+      await marketplaceLogger.logListingResult(
+        token_id,
+        null,
+        false,
+        { error: { message: error.message, code: error.code } }
+      );
+      
+      // Log transaction error
+      await marketplaceLogger.logTransactionError(
+        token_id,
+        error,
+        'LISTING',
+        { 
+          saleType: formData.saleType,
+          price: formData.askPrice,
+          userAddress: address
+        }
+      );
+      
+      // Also log to error logs
+      errorLogger.logError(error, {
+        type: 'MARKETPLACE_TRANSACTION_ERROR',
+        subType: 'LISTING',
+        context: {
+          tokenId: token_id,
+          saleType: formData.saleType,
+          price: formData.askPrice,
+          userAddress: address,
+          operation: 'LISTING'
+        }
+      });
+
+      console.error("Error in handleSale function:", error);
+      toast.error(`${error.message}`);
+    }
+  };
+
+  const handleUpdateSale = async (formData) => {
+    const { startTime, endTime } = formData;
+
+    console.log("timeConfigData", timeConfigData);
+
+    const startTimestamp = new Date(startTime).getTime() / 1000;
+    const endTimestamp = new Date(endTime).getTime() / 1000;
+    const currentTime = Date.now() / 1000;
+    const minTimeDifference = Number(timeConfigData?.minSaleDuration);
+    if (startTimestamp <= Math.floor(currentTime)) {
+      toast.error("Start time must be greater than the current time");
+      return;
+    }
+
+    if (endTimestamp - startTimestamp < minTimeDifference) {
+      toast.error(
+        `End time must be at least ${timeConfigData?.minTimeDifference} minutes after start time`
+      );
+      return;
+    }
+
+    const maxTimeDuration = Number(timeConfigData?.maxSaleDuration);
+
+    if (endTimestamp - startTimestamp > maxTimeDuration) {
+      toast.error("Maximum duration allowed is 24 hours");
+      return;
+    }
+
+    try {
+      const updatedFormData = {
+        ...formData,
+        startTime: startTimestamp,
+        endTime: endTimestamp,
+        tokenID: Number(token_id),
+      };
+
+      // Log listing update attempt
+      await marketplaceLogger.logListingAttempt(
+        token_id,
+        {
+          saleId: data?.saleId,
+          operation: 'UPDATE',
+          price: formData.askPrice,
+          startTime: startTimestamp,
+          endTime: endTimestamp,
+          userAddress: address
+        }
+      );
+
+      dispatch(setLoading());
+
+      let res = await updateSale(data?.saleId, updatedFormData, address);
+      setStep("confirmation");
+      console.log("res from createSale", res?.transactionHash);
+      
+      // Log listing update success
+      await marketplaceLogger.logListingResult(
+        token_id,
+        data?.saleId,
+        true,
+        {
+          operation: 'UPDATE',
+          transactionHash: res?.transactionHash,
+          price: formData.askPrice
+        }
+      );
+      
+      if (res?.transactionHash) {
+        setFormData({
+          askPrice: "",
+          startTime: "",
+          endTime: "",
+          saleType: null,
+        });
+      }
+      // updateSaleMutation(res?.transactionHash);
+      saleCreatedMutation(res?.transactionHash);
+
+      setTimeout(() => {
+        handleModalClose();
+      }, 2000);
+      dispatch(unSetLoading());
+    } catch (error) {
+      dispatch(unSetLoading());
+
+      // Log listing update failure
+      await marketplaceLogger.logListingResult(
+        token_id,
+        data?.saleId,
+        false,
+        { 
+          operation: 'UPDATE',
+          error: { message: error.message, code: error.code } 
+        }
+      );
+      
+      // Log transaction error
+      await marketplaceLogger.logTransactionError(
+        token_id,
+        error,
+        'UPDATE_LISTING',
+        { 
+          saleId: data?.saleId,
+          price: formData.askPrice,
+          userAddress: address
+        }
+      );
+      
+      // Also log to error logs
+      errorLogger.logError(error, {
+        type: 'MARKETPLACE_TRANSACTION_ERROR',
+        subType: 'UPDATE_LISTING',
+        context: {
+          tokenId: token_id,
+          saleId: data?.saleId,
+          price: formData.askPrice,
+          userAddress: address
+        }
+      });
+
+      console.error("Error in handleSale function:", error);
+      toast.error(`${error.message}`);
+    }
+  };
+
+  return (
+    <div>
+      {isUpdate ? <LoadingBubbleCircle /> : ""}
+
+      <StyledConfirmModal
+        show={showModal}
+        onHide={handleClose}
+        title={step === "select" ? `Choose an Option for ${name}` : ""}
+        showCloseButton={true}
+        fillColor="blue"
+        centered
+      >
+        <ContentRenderer
+          name={name}
+          step={step}
+          selectedOption={selectedOption}
+          formData={formData}
+          handleInputChange={handleInputChange}
+          setStep={setStep}
+          setSelectedOption={setSelectedOption}
+          handleClose={() => handleClose(setStep)}
+          handleOptionChange={handleOptionChange}
+          handleSale={handleSale}
+          handleUpdateSale={handleUpdateSale}
+          isUpdate={isUpdate}
+          data={data}
+          isEditPrice={isEditPrice}
+        />
+      </StyledConfirmModal>
+    </div>
+  );
+};
+
+export default ModalForSellNFT;

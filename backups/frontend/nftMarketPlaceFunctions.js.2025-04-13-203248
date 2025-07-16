@@ -1,0 +1,361 @@
+import Web3 from "web3";
+import { toast } from "react-toastify";
+import { marketPlaceInstance } from "common/methodInstance";
+import { ethers } from "ethers";
+import marketplaceLogger from "services/marketplaceLogger";
+import errorLogger from "services/errorLogger";
+
+export const buyNFT = async (saleId, amount, address) => {
+  console.log("amount,saleId", amount, saleId);
+  try {
+    const Contract = marketPlaceInstance();
+    const result = await Contract.methods.buyNFT(saleId).send({
+      from: address,
+      value: amount,
+    });
+
+    console.log("NFT purchase transaction receipt:", result);
+    toast.success("NFT purchase successful!");
+    return result;
+  } catch (error) {
+    console.error("Error in buyNFT function:", error);
+    
+    // Get token ID from sale ID if possible
+    let tokenId = null;
+    try {
+      const Contract = marketPlaceInstance();
+      const saleInfo = await Contract.methods.getSale(saleId).call();
+      tokenId = saleInfo.tokenId;
+    } catch (err) {
+      console.error("Could not get token ID from sale:", err);
+    }
+    
+    // Log transaction error
+    if (tokenId) {
+      await marketplaceLogger.logTransactionError(
+        tokenId,
+        error,
+        'BUY_NFT',
+        { 
+          saleId,
+          amount: Web3.utils.fromWei(amount.toString(), 'ether'),
+          userAddress: address
+        }
+      );
+      
+      // Also log to error logs
+      errorLogger.logError(error, {
+        type: 'MARKETPLACE_TRANSACTION_ERROR',
+        subType: 'BUY_NFT',
+        context: {
+          tokenId,
+          saleId,
+          amount: Web3.utils.fromWei(amount.toString(), 'ether'),
+          userAddress: address,
+          operation: 'BUY_NFT'
+        }
+      });
+    }
+    
+    toast.error(`${error.message}`);
+    throw error;
+  }
+};
+
+export const placeBidNFT = async (saleId, amount, address) => {
+  console.log("saleId from palce BID", saleId, amount, address);
+  try {
+    const Contract = marketPlaceInstance();
+    const result = await Contract.methods
+      .placeBid(saleId)
+      .send({ from: address, value: Web3.utils.toWei(amount, "ether") });
+    console.log("Bid placement transaction receipt:", result);
+    toast.success("Bid placed successfully!");
+    return result;
+  } catch (error) {
+    console.error("Error in placeBidNFT function:", error);
+    
+    // Get token ID from sale ID if possible
+    let tokenId = null;
+    try {
+      const Contract = marketPlaceInstance();
+      const saleInfo = await Contract.methods.getSale(saleId).call();
+      tokenId = saleInfo.tokenId;
+    } catch (err) {
+      console.error("Could not get token ID from sale:", err);
+    }
+    
+    // Log transaction error
+    if (tokenId) {
+      await marketplaceLogger.logTransactionError(
+        tokenId,
+        error,
+        'PLACE_BID',
+        { 
+          saleId,
+          amount,
+          userAddress: address
+        }
+      );
+      
+      // Also log to error logs
+      errorLogger.logError(error, {
+        type: 'MARKETPLACE_TRANSACTION_ERROR',
+        subType: 'PLACE_BID',
+        context: {
+          tokenId,
+          saleId,
+          amount,
+          userAddress: address,
+          operation: 'PLACE_BID'
+        }
+      });
+    }
+    
+    toast.error(`${error.message}`);
+    throw error;
+  }
+};
+
+export const finalizeBid = async (saleId, address) => {
+  console.log("saleId from finalize BID", saleId);
+  try {
+    const Contract = marketPlaceInstance();
+    const result = await Contract.methods
+      .finalizeAuction(saleId)
+      .send({ from: address });
+
+    console.log("finalize BID:", result);
+    toast.success("BID finalized successfully!");
+    return result;
+  } catch (error) {
+    console.error("Error in finalize BID function:", error);
+    
+    // Get token ID from sale ID if possible
+    let tokenId = null;
+    try {
+      const Contract = marketPlaceInstance();
+      const saleInfo = await Contract.methods.getSale(saleId).call();
+      tokenId = saleInfo.tokenId;
+    } catch (err) {
+      console.error("Could not get token ID from sale:", err);
+    }
+    
+    // Log transaction error
+    if (tokenId) {
+      await marketplaceLogger.logTransactionError(
+        tokenId,
+        error,
+        'FINALIZE_AUCTION',
+        { 
+          saleId,
+          userAddress: address
+        }
+      );
+      
+      // Also log to error logs
+      errorLogger.logError(error, {
+        type: 'MARKETPLACE_TRANSACTION_ERROR',
+        subType: 'FINALIZE_AUCTION',
+        context: {
+          tokenId,
+          saleId,
+          userAddress: address,
+          operation: 'FINALIZE_AUCTION'
+        }
+      });
+    }
+    
+    toast.error(`${error.message}`);
+    throw error;
+  }
+};
+
+export const retrieveBid = async (saleId, address) => {
+  console.log("saleId from retrieveBid ", saleId);
+  try {
+    const Contract = marketPlaceInstance();
+    const result = await Contract.methods
+      .finalizeExpiredSale(saleId)
+      .send({ from: address });
+
+    console.log("retrieve Bid:", result);
+    toast.success("Assets retrieved successfully!");
+    return result;
+  } catch (error) {
+    console.error("Error in finalize BID function:", error);
+    
+    // Get token ID from sale ID if possible
+    let tokenId = null;
+    try {
+      const Contract = marketPlaceInstance();
+      const saleInfo = await Contract.methods.getSale(saleId).call();
+      tokenId = saleInfo.tokenId;
+    } catch (err) {
+      console.error("Could not get token ID from sale:", err);
+    }
+    
+    // Log transaction error
+    if (tokenId) {
+      await marketplaceLogger.logTransactionError(
+        tokenId,
+        error,
+        'RETRIEVE_BID',
+        { 
+          saleId,
+          userAddress: address
+        }
+      );
+      
+      // Also log to error logs
+      errorLogger.logError(error, {
+        type: 'MARKETPLACE_TRANSACTION_ERROR',
+        subType: 'RETRIEVE_BID',
+        context: {
+          tokenId,
+          saleId,
+          userAddress: address,
+          operation: 'RETRIEVE_BID'
+        }
+      });
+    }
+    
+    toast.error(`${error.message}`);
+    throw error;
+  }
+};
+
+export const createSale = async (saleData, address) => {
+  try {
+    // console.log(
+    //   " ethers.utils.parseEther(saleData.price),-------------",
+    //   ethers.utils.parseEther(saleData.askPrice)
+    // );
+
+    console.log(
+      'Web3.utils.toWei(amount, "ether")',
+      Web3.utils.toWei(saleData?.askPrice)
+    );
+    console.log("saleData:-------", saleData, "address:", address);
+
+    const Contract = marketPlaceInstance();
+    const result = await Contract.methods
+
+      .createSale(
+        saleData.saleType,
+        saleData.tokenID,
+        Web3.utils.toWei(saleData?.askPrice),
+        saleData.startTime,
+        saleData.endTime
+      )
+      .send({
+        from: address,
+      });
+    console.log("Bid placement transaction receipt:", result);
+    toast.success("Sale created successfully!");
+    return result;
+  } catch (error) {
+    console.error("Error in createSale function:", error);
+    
+    // Log transaction error
+    await marketplaceLogger.logTransactionError(
+      saleData.tokenID,
+      error,
+      'CREATE_SALE',
+      { 
+        tokenId: saleData.tokenID,
+        saleType: saleData.saleType,
+        price: saleData.askPrice,
+        startTime: saleData.startTime,
+        endTime: saleData.endTime,
+        userAddress: address
+      }
+    );
+    
+    // Also log to error logs
+    errorLogger.logError(error, {
+      type: 'MARKETPLACE_TRANSACTION_ERROR',
+      subType: 'CREATE_SALE',
+      context: {
+        tokenId: saleData.tokenID,
+        saleType: saleData.saleType,
+        price: saleData.askPrice,
+        startTime: saleData.startTime,
+        endTime: saleData.endTime,
+        userAddress: address,
+        operation: 'CREATE_SALE'
+      }
+    });
+    
+    toast.error(`${error.message}`);
+    throw error;
+  }
+};
+
+export const updateSale = async (saleId, formData, address) => {
+  try {
+    console.log("saleId", saleId, formData, address);
+    const Contract = marketPlaceInstance();
+    const result = await Contract.methods
+
+      .updateSale(
+        saleId,
+
+        Web3.utils.toWei(formData?.askPrice),
+        formData.startTime,
+        formData.endTime
+      )
+      .send({
+        from: address,
+      });
+    console.log("Bid placement transaction receipt:", result);
+    toast.success("Sale update successfully!");
+    return result;
+  } catch (error) {
+    console.error("Error in createSale function:", error);
+    
+    // Get token ID from sale ID if possible
+    let tokenId = null;
+    try {
+      const Contract = marketPlaceInstance();
+      const saleInfo = await Contract.methods.getSale(saleId).call();
+      tokenId = saleInfo.tokenId;
+    } catch (err) {
+      console.error("Could not get token ID from sale:", err);
+    }
+    
+    // Log transaction error
+    if (tokenId) {
+      await marketplaceLogger.logTransactionError(
+        tokenId,
+        error,
+        'UPDATE_SALE',
+        { 
+          saleId,
+          price: formData.askPrice,
+          startTime: formData.startTime,
+          endTime: formData.endTime,
+          userAddress: address
+        }
+      );
+      
+      // Also log to error logs
+      errorLogger.logError(error, {
+        type: 'MARKETPLACE_TRANSACTION_ERROR',
+        subType: 'UPDATE_SALE',
+        context: {
+          tokenId,
+          saleId,
+          price: formData.askPrice,
+          startTime: formData.startTime,
+          endTime: formData.endTime,
+          userAddress: address,
+          operation: 'UPDATE_SALE'
+        }
+      });
+    }
+    
+    toast.error(`${error.message}`);
+    throw error;
+  }
+};

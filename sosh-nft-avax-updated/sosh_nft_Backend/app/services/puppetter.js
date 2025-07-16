@@ -1,0 +1,833 @@
+const puppeteer = require('puppeteer');
+// const puppeteer = require('puppeteer-core');
+
+const axios = require('axios');
+const puppeteerExtra = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const logging = require('../logging');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+// Set HOME environment variable to a writable location
+process.env.HOME = '/server';
+
+// Set XDG environment variables to control Chrome's file locations
+process.env.XDG_CONFIG_HOME = '/server/.config';
+process.env.XDG_CACHE_HOME = '/server/.cache';
+process.env.XDG_DATA_HOME = '/server/.local/share';
+
+puppeteerExtra.use(StealthPlugin());
+
+// Define user data directories
+const chromeUserDataDir = '/server/chrome-user-data';
+const tiktokUserDataDir = '/server/chrome-user-data-tiktok';
+const crashpadDir = '/server/chrome-crash-reports';
+
+// Generate a request ID for this operation
+const setupRequestId = `puppeteer-setup-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+
+try {
+  // Log the setup attempt using systemLogger
+  logging.systemLogger.logServiceStatus('puppeteer', 'configuring', {
+    requestId: setupRequestId,
+    operation: 'create_user_data_dirs',
+    directories: [chromeUserDataDir, tiktokUserDataDir, crashpadDir]
+  });
+  
+  if (!fs.existsSync(chromeUserDataDir)) {
+    fs.mkdirSync(chromeUserDataDir, { recursive: true });
+    
+    // Log successful directory creation
+    logging.systemLogger.logServiceStatus('puppeteer', 'configured', {
+      requestId: setupRequestId,
+      operation: 'directory_created',
+      directory: chromeUserDataDir,
+      status: 'success'
+    });
+  }
+  
+  if (!fs.existsSync(tiktokUserDataDir)) {
+    fs.mkdirSync(tiktokUserDataDir, { recursive: true });
+    
+    // Log successful directory creation
+    logging.systemLogger.logServiceStatus('puppeteer', 'configured', {
+      requestId: setupRequestId,
+      operation: 'directory_created',
+      directory: tiktokUserDataDir,
+      status: 'success'
+    });
+  }
+  
+  if (!fs.existsSync(crashpadDir)) {
+    fs.mkdirSync(crashpadDir, { recursive: true });
+    
+    // Log successful directory creation
+    logging.systemLogger.logServiceStatus('puppeteer', 'configured', {
+      requestId: setupRequestId,
+      operation: 'directory_created',
+      directory: crashpadDir,
+      status: 'success'
+    });
+  }
+  
+  // Ensure XDG directories exist
+  const xdgDirs = [
+    '/server/.config',
+    '/server/.cache',
+    '/server/.local/share',
+    '/server/.local/share/applications'
+  ];
+  
+  for (const dir of xdgDirs) {
+    if (!fs.existsSync(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        logging.systemLogger.logServiceStatus('puppeteer', 'configured', {
+          requestId: setupRequestId,
+          operation: 'directory_created',
+          directory: dir,
+          status: 'success'
+        });
+      } catch (error) {
+        logging.errorLogger.logError(error, {
+          context: 'puppeteer_setup',
+          requestId: setupRequestId,
+          operation: 'create_xdg_dir',
+          directory: dir,
+          errorType: error.name,
+          errorMessage: error.message
+        });
+      }
+    }
+  }
+  
+  // Create mimeapps.list file if it doesn't exist
+  const mimeappsPath = '/server/.local/share/applications/mimeapps.list';
+  if (!fs.existsSync(mimeappsPath)) {
+    try {
+      fs.writeFileSync(mimeappsPath, '');
+      logging.systemLogger.logServiceStatus('puppeteer', 'configured', {
+        requestId: setupRequestId,
+        operation: 'file_created',
+        file: mimeappsPath,
+        status: 'success'
+      });
+    } catch (error) {
+      logging.errorLogger.logError(error, {
+        context: 'puppeteer_setup',
+        requestId: setupRequestId,
+        operation: 'create_mimeapps_file',
+        file: mimeappsPath,
+        errorType: error.name,
+        errorMessage: error.message
+      });
+    }
+  }
+  
+  // Log environment information
+  logging.systemLogger.logServiceStatus('puppeteer', 'environment', {
+    requestId: setupRequestId,
+    operation: 'environment_check',
+    env: process.env.NODE_ENV,
+    user: process.getuid ? process.getuid() : 'unknown',
+    group: process.getgid ? process.getgid() : 'unknown',
+    cwd: process.cwd(),
+    tempDir: os.tmpdir(),
+    homeDir: os.homedir(),
+    platform: process.platform,
+    nodeVersion: process.version,
+    home: process.env.HOME,
+    xdgConfigHome: process.env.XDG_CONFIG_HOME,
+    xdgCacheHome: process.env.XDG_CACHE_HOME,
+    xdgDataHome: process.env.XDG_DATA_HOME
+  });
+  
+  // Log overall success
+  logging.systemLogger.logServiceStatus('puppeteer', 'ready', {
+    requestId: setupRequestId,
+    operation: 'user_data_dirs_setup',
+    status: 'complete',
+    directories: [chromeUserDataDir, tiktokUserDataDir, crashpadDir, ...xdgDirs]
+  });
+} catch (error) {
+  // Log detailed error information to error_logs
+  logging.errorLogger.logError(error, {
+    context: 'puppeteer_setup',
+    requestId: setupRequestId,
+    operation: 'create_user_data_dirs',
+    directories: [chromeUserDataDir, tiktokUserDataDir, crashpadDir],
+    errorType: error.name,
+    errorMessage: error.message
+  });
+  
+  // Log service status change to system_logs
+  logging.systemLogger.logServiceStatus('puppeteer', 'failed', {
+    requestId: setupRequestId,
+    operation: 'user_data_dirs_setup',
+    status: 'failed',
+    errorSummary: error.message
+  });
+  
+  // Continue execution - the directories might already exist or be created by Docker
+}
+
+const getTemplate = (tweetBody) => {
+  const htmltemplate = `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Document</title>
+        </head>
+    <body>
+               ${tweetBody}
+    </body>
+    </html>`;
+  return htmltemplate;
+};
+
+const postScreenshot = async (postURL, postPlatform) => {
+  // Create a request ID for tracking this operation
+  const requestId = `screenshot-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+  
+  // Log the start of the screenshot process
+  logging.apiLogger.logRequest({
+    method: 'SCREENSHOT',
+    url: postURL,
+    context: {
+      requestId,
+      operation: 'screenshot_start',
+      platform: postPlatform,
+      url: postURL
+    }
+  });
+  
+  try {
+    // got tweet body from publish tweet api
+    let platformAPIURL;
+    let postClass;
+    const tweetUrl = new URL(postURL);
+    
+    if (postPlatform === 'twitter') {
+      platformAPIURL = `https://publish.twitter.com/oembed?url=${tweetUrl}`;
+      postClass = '.twitter-tweet';
+    }
+    if (postPlatform === 'instagram') {
+      platformAPIURL = `https://api.instagram.com/oembed/?url=${tweetUrl}`;
+      postClass = '.instagram-media';
+    }
+    if (postPlatform === 'youtube') {
+      platformAPIURL = `https://www.youtube.com/oembed?url=${tweetUrl}&format=json`;
+      postClass = '.youtube-media';
+    }
+    if (postPlatform === 'tiktok') {
+      platformAPIURL = `https://www.tiktok.com/oembed?url=${tweetUrl}`;
+      postClass = '.tiktok-embed';
+    }
+    
+    // Log the oembed API request
+    logging.apiLogger.logRequest({
+      method: 'GET',
+      url: platformAPIURL,
+      context: {
+        requestId,
+        operation: 'oembed_api_request',
+        platform: postPlatform,
+        originalUrl: postURL
+      }
+    });
+    
+    const { data: oembedResponse } = await axios.get(platformAPIURL);
+    
+    // Log successful oembed API response
+    logging.apiLogger.logRequest({
+      method: 'GET',
+      url: platformAPIURL,
+      context: {
+        requestId,
+        operation: 'oembed_api_success',
+        platform: postPlatform,
+        responseSize: JSON.stringify(oembedResponse).length
+      }
+    });
+    
+    // Log browser launch attempt
+    logging.apiLogger.logRequest({
+      method: 'BROWSER',
+      url: postURL,
+      context: {
+        requestId,
+        operation: 'browser_launch',
+        platform: postPlatform
+      }
+    });
+    
+    // Define launch configuration
+    const launchConfig = {
+      executablePath: '/usr/bin/google-chrome',
+      userDataDir: chromeUserDataDir,
+      args: [
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--disable-setuid-sandbox',
+        '--no-first-run',
+        '--no-sandbox',
+        '--no-zygote',
+        `--crash-dumps-dir=${crashpadDir}`,
+        '--use-gl=swiftshader',
+        '--disable-software-rasterizer',
+      ],
+      timeout: 60000,
+      env: {
+        ...process.env,
+        HOME: '/server',
+        XDG_CONFIG_HOME: '/server/.config',
+        XDG_CACHE_HOME: '/server/.cache',
+        XDG_DATA_HOME: '/server/.local/share'
+      }
+    };
+    
+    // Log the launch configuration
+    logging.systemLogger.logServiceStatus('puppeteer', 'launch_config', {
+      requestId,
+      operation: 'browser_launch_config',
+      platform: postPlatform,
+      config: {
+        ...launchConfig,
+        env: {
+          HOME: launchConfig.env.HOME,
+          XDG_CONFIG_HOME: launchConfig.env.XDG_CONFIG_HOME,
+          XDG_CACHE_HOME: launchConfig.env.XDG_CACHE_HOME,
+          XDG_DATA_HOME: launchConfig.env.XDG_DATA_HOME
+        }
+      }
+    });
+    
+    // open headless browser
+    const browser = await puppeteer.launch(launchConfig).catch(error => {
+      // Log browser launch error
+      logging.errorLogger.logError(error, {
+        context: 'puppeteer_browser_launch',
+        requestId,
+        platform: postPlatform,
+        url: postURL,
+        operation: 'browser_launch',
+        errorType: error.name,
+        errorMessage: error.message
+      });
+      throw error;
+    });
+    
+    // Log successful browser launch
+    logging.apiLogger.logRequest({
+      method: 'BROWSER',
+      url: postURL,
+      context: {
+        requestId,
+        operation: 'browser_launch_success',
+        platform: postPlatform
+      }
+    });
+    
+    // Add browser version and process info logging
+    try {
+      const browserVersion = await browser.version();
+      const pages = await browser.pages();
+      
+      logging.systemLogger.logServiceStatus('puppeteer', 'browser_info', {
+        requestId,
+        operation: 'browser_details',
+        platform: postPlatform,
+        browserVersion,
+        pageCount: pages.length,
+        userDataDir: chromeUserDataDir,
+        pid: browser.process() ? browser.process().pid : 'unknown'
+      });
+    } catch (versionError) {
+      logging.errorLogger.logError(versionError, {
+        context: 'browser_version_check',
+        requestId,
+        operation: 'get_browser_info',
+        errorType: versionError.name,
+        errorMessage: versionError.message
+      });
+      // Don't throw - this is just diagnostic info
+    }
+    
+    // Verify user data directory status
+    try {
+      const userDataDirExists = fs.existsSync(chromeUserDataDir);
+      let userDataDirContents = [];
+      
+      if (userDataDirExists) {
+        userDataDirContents = fs.readdirSync(chromeUserDataDir);
+      }
+      
+      logging.systemLogger.logServiceStatus('puppeteer', 'directory_check', {
+        requestId,
+        operation: 'user_data_dir_verification',
+        platform: postPlatform,
+        directory: chromeUserDataDir,
+        exists: userDataDirExists,
+        isEmpty: userDataDirContents.length === 0,
+        fileCount: userDataDirContents.length,
+        files: userDataDirContents.slice(0, 10) // Log up to 10 files
+      });
+    } catch (dirCheckError) {
+      logging.errorLogger.logError(dirCheckError, {
+        context: 'user_data_dir_check',
+        requestId,
+        operation: 'verify_user_data_dir',
+        directory: chromeUserDataDir,
+        errorType: dirCheckError.name,
+        errorMessage: dirCheckError.message
+      });
+      // Don't throw - this is just diagnostic info
+    }
+    
+    const page = await browser.newPage().catch(error => {
+      // Log page creation error
+      logging.errorLogger.logError(error, {
+        context: 'puppeteer_new_page',
+        requestId,
+        platform: postPlatform,
+        url: postURL,
+        operation: 'new_page',
+        errorType: error.name,
+        errorMessage: error.message
+      });
+      throw error;
+    });
+    
+    await page.setViewport({
+      width: 800,
+      height: 1000,
+    }).catch(error => {
+      // Log viewport setting error
+      logging.errorLogger.logError(error, {
+        context: 'puppeteer_set_viewport',
+        requestId,
+        platform: postPlatform,
+        url: postURL,
+        operation: 'set_viewport',
+        errorType: error.name,
+        errorMessage: error.message
+      });
+      throw error;
+    });
+
+    if (postPlatform === 'instagram') {
+      oembedResponse.html = oembedResponse.html.replace('//www.instagram.com/embed.js', 'http://www.instagram.com/embed.js');
+    }
+
+    if (postPlatform === 'youtube') {
+      const youtubeOembedArray = oembedResponse.html.split(' ');
+      const youtubeClassAdd = `${youtubeOembedArray[0]} class="youtube-media"`;
+      const newYoutubeOembed = oembedResponse.html.split(' ');
+      newYoutubeOembed[0] = youtubeClassAdd;
+      newYoutubeOembed[1] = 'width="550"';
+      newYoutubeOembed[2] = 'height="504"';
+      oembedResponse.html = newYoutubeOembed.join(' ');
+    }
+
+    if (postPlatform === 'tiktok') {
+      try {
+        // Log TikTok specific browser launch
+        logging.apiLogger.logRequest({
+          method: 'BROWSER',
+          url: postURL,
+          context: {
+            requestId,
+            operation: 'tiktok_browser_launch',
+            platform: postPlatform,
+            tiktokPath: `https://www.tiktok.com/embed/v2/${tweetUrl.pathname.split('/')[3]}`
+          }
+        });
+        
+        // Define TikTok launch configuration
+        const tiktokLaunchConfig = {
+          executablePath: '/usr/bin/google-chrome',
+          userDataDir: tiktokUserDataDir,
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            `--crash-dumps-dir=${crashpadDir}`,
+            '--use-gl=swiftshader',
+            '--disable-software-rasterizer',
+          ],
+          env: {
+            ...process.env,
+            HOME: '/server',
+            XDG_CONFIG_HOME: '/server/.config',
+            XDG_CACHE_HOME: '/server/.cache',
+            XDG_DATA_HOME: '/server/.local/share'
+          }
+        };
+        
+        // Log the TikTok launch configuration
+        logging.systemLogger.logServiceStatus('puppeteer', 'tiktok_launch_config', {
+          requestId,
+          operation: 'tiktok_browser_launch_config',
+          platform: postPlatform,
+          config: {
+            ...tiktokLaunchConfig,
+            env: {
+              HOME: tiktokLaunchConfig.env.HOME,
+              XDG_CONFIG_HOME: tiktokLaunchConfig.env.XDG_CONFIG_HOME,
+              XDG_CACHE_HOME: tiktokLaunchConfig.env.XDG_CACHE_HOME,
+              XDG_DATA_HOME: tiktokLaunchConfig.env.XDG_DATA_HOME
+            }
+          }
+        });
+        
+        const browserTiktok = await puppeteerExtra.launch(tiktokLaunchConfig).catch(error => {
+          // Log TikTok browser launch error
+          logging.errorLogger.logError(error, {
+            context: 'tiktok_browser_launch',
+            requestId,
+            platform: postPlatform,
+            url: postURL,
+            operation: 'tiktok_browser_launch',
+            errorType: error.name,
+            errorMessage: error.message
+          });
+          throw error;
+        });
+        
+        // Add TikTok browser version and process info logging
+        try {
+          const tiktokBrowserVersion = await browserTiktok.version();
+          const tiktokPages = await browserTiktok.pages();
+          
+          logging.systemLogger.logServiceStatus('puppeteer', 'tiktok_browser_info', {
+            requestId,
+            operation: 'tiktok_browser_details',
+            platform: postPlatform,
+            browserVersion: tiktokBrowserVersion,
+            pageCount: tiktokPages.length,
+            userDataDir: tiktokUserDataDir,
+            pid: browserTiktok.process() ? browserTiktok.process().pid : 'unknown'
+          });
+        } catch (versionError) {
+          logging.errorLogger.logError(versionError, {
+            context: 'tiktok_browser_version_check',
+            requestId,
+            operation: 'get_tiktok_browser_info',
+            errorType: versionError.name,
+            errorMessage: versionError.message
+          });
+          // Don't throw - this is just diagnostic info
+        }
+        
+        const pageTiktok = await browserTiktok.newPage();
+        await pageTiktok.setViewport({
+          width: 600,
+          height: 800,
+        });
+        
+        // Log TikTok page navigation
+        logging.apiLogger.logRequest({
+          method: 'NAVIGATE',
+          url: `https://www.tiktok.com/embed/v2/${tweetUrl.pathname.split('/')[3]}`,
+          context: {
+            requestId,
+            operation: 'tiktok_page_navigation',
+            platform: postPlatform
+          }
+        });
+        
+        await pageTiktok.goto(`https://www.tiktok.com/embed/v2/${tweetUrl.pathname.split('/')[3]}`).catch(error => {
+          // Log TikTok navigation error
+          logging.errorLogger.logError(error, {
+            context: 'tiktok_page_navigation',
+            requestId,
+            platform: postPlatform,
+            url: `https://www.tiktok.com/embed/v2/${tweetUrl.pathname.split('/')[3]}`,
+            operation: 'page_goto',
+            errorType: error.name,
+            errorMessage: error.message
+          });
+          throw error;
+        });
+
+        await pageTiktok.waitForTimeout(9000);
+
+        // Log TikTok screenshot attempt
+        logging.apiLogger.logRequest({
+          method: 'SCREENSHOT',
+          url: postURL,
+          context: {
+            requestId,
+            operation: 'tiktok_screenshot_attempt',
+            platform: postPlatform
+          }
+        });
+        
+        const buffer = await pageTiktok.screenshot({
+          clip: {
+            x: 60,
+            y: 8,
+            width: Math.min(480, pageTiktok.viewport().width),
+            height: Math.min(600, pageTiktok.viewport().height),
+          },
+        }).catch(error => {
+          // Log TikTok screenshot error
+          logging.errorLogger.logError(error, {
+            context: 'tiktok_screenshot',
+            requestId,
+            platform: postPlatform,
+            url: postURL,
+            operation: 'screenshot',
+            errorType: error.name,
+            errorMessage: error.message
+          });
+          throw error;
+        });
+        
+        // Log TikTok screenshot success
+        logging.apiLogger.logRequest({
+          method: 'SCREENSHOT',
+          url: postURL,
+          context: {
+            requestId,
+            operation: 'tiktok_screenshot_success',
+            platform: postPlatform,
+            bufferSize: buffer.length
+          }
+        });
+        
+        await browserTiktok.close();
+        return buffer;
+      } catch (error) {
+        // Log TikTok overall error
+        logging.errorLogger.logError(error, {
+          context: 'tiktok_screenshot_process',
+          requestId,
+          platform: postPlatform,
+          url: postURL,
+          operation: 'tiktok_screenshot',
+          errorType: error.name,
+          errorMessage: error.message,
+          stack: error.stack
+        });
+        throw error;
+      }
+    }
+
+    try {
+      // Log content setting
+      logging.apiLogger.logRequest({
+        method: 'CONTENT',
+        url: postURL,
+        context: {
+          requestId,
+          operation: 'set_page_content',
+          platform: postPlatform,
+          contentLength: oembedResponse.html.length
+        }
+      });
+      
+      // set content on the html page
+      const content = getTemplate(oembedResponse.html);
+      await page.setContent(content).catch(error => {
+        // Log content setting error
+        logging.errorLogger.logError(error, {
+          context: 'set_page_content',
+          requestId,
+          platform: postPlatform,
+          url: postURL,
+          operation: 'set_content',
+          errorType: error.name,
+          errorMessage: error.message
+        });
+        throw error;
+      });
+
+      // Log waiting for content to load
+      logging.apiLogger.logRequest({
+        method: 'WAIT',
+        url: postURL,
+        context: {
+          requestId,
+          operation: 'wait_for_content',
+          platform: postPlatform,
+          waitTime: 9000
+        }
+      });
+      
+      // wait to load css and js
+      await page.waitForTimeout(9000);
+      
+      // Log selector waiting
+      logging.apiLogger.logRequest({
+        method: 'SELECTOR',
+        url: postURL,
+        context: {
+          requestId,
+          operation: 'wait_for_selector',
+          platform: postPlatform,
+          selector: postClass
+        }
+      });
+      
+      const selector = await page.waitForSelector(postClass).catch(error => {
+        // Log selector error
+        logging.errorLogger.logError(error, {
+          context: 'wait_for_selector',
+          requestId,
+          platform: postPlatform,
+          url: postURL,
+          operation: 'wait_for_selector',
+          selector: postClass,
+          errorType: error.name,
+          errorMessage: error.message
+        });
+        throw error;
+      });
+
+      // Log bounding box calculation
+      logging.apiLogger.logRequest({
+        method: 'BOUNDINGBOX',
+        url: postURL,
+        context: {
+          requestId,
+          operation: 'get_bounding_box',
+          platform: postPlatform
+        }
+      });
+      
+      const bounding_box = await selector.boundingBox().catch(error => {
+        // Log bounding box error
+        logging.errorLogger.logError(error, {
+          context: 'get_bounding_box',
+          requestId,
+          platform: postPlatform,
+          url: postURL,
+          operation: 'get_bounding_box',
+          errorType: error.name,
+          errorMessage: error.message
+        });
+        throw error;
+      });
+      
+      // Log bounding box details instead of console.log
+      logging.systemLogger.logServiceStatus('puppeteer', 'bounding_box', {
+        requestId,
+        operation: 'bounding_box_details',
+        platform: postPlatform,
+        boundingBox: bounding_box
+      });
+      
+      // Log screenshot attempt
+      logging.apiLogger.logRequest({
+        method: 'SCREENSHOT',
+        url: postURL,
+        context: {
+          requestId,
+          operation: 'take_screenshot',
+          platform: postPlatform,
+          boundingBox: {
+            x: bounding_box.x,
+            y: bounding_box.y,
+            width: Math.min(bounding_box.width, page.viewport().width),
+            height: Math.min(bounding_box.height, page.viewport().height)
+          }
+        }
+      });
+
+      const buffer = await selector.screenshot({
+        clip: {
+          x: bounding_box.x,
+          y: bounding_box.y,
+          width: Math.min(bounding_box.width, page.viewport().width),
+          height: Math.min(bounding_box.height, page.viewport().height),
+        },
+      }).catch(error => {
+        // Log screenshot error
+        logging.errorLogger.logError(error, {
+          context: 'take_screenshot',
+          requestId,
+          platform: postPlatform,
+          url: postURL,
+          operation: 'screenshot',
+          errorType: error.name,
+          errorMessage: error.message
+        });
+        throw error;
+      });
+      
+      // Log screenshot success
+      logging.apiLogger.logRequest({
+        method: 'SCREENSHOT',
+        url: postURL,
+        context: {
+          requestId,
+          operation: 'screenshot_success',
+          platform: postPlatform,
+          bufferSize: buffer.length
+        }
+      });
+
+      await browser.close();
+      return buffer;
+    } catch (error) {
+      // Ensure browser is closed in case of error
+      if (browser) {
+        try {
+          await browser.close();
+          
+          // Log browser close
+          logging.systemLogger.logServiceStatus('puppeteer', 'browser_closed', {
+            requestId,
+            operation: 'browser_cleanup',
+            platform: postPlatform,
+            status: 'success'
+          });
+        } catch (closingError) {
+          // Log browser close error
+          logging.errorLogger.logError(closingError, {
+            context: 'browser_close',
+            requestId,
+            platform: postPlatform,
+            operation: 'browser_cleanup',
+            errorType: closingError.name,
+            errorMessage: closingError.message
+          });
+        }
+      }
+      
+      // Log overall screenshot error
+      logging.errorLogger.logError(error, {
+        context: 'screenshot_process',
+        requestId,
+        platform: postPlatform,
+        url: postURL,
+        operation: 'screenshot',
+        errorType: error.name,
+        errorMessage: error.message,
+        stack: error.stack
+      });
+      
+      throw error;
+    }
+  } catch (error) {
+    // Log top-level error
+    logging.errorLogger.logError(error, {
+      context: 'post_screenshot',
+      platform: postPlatform,
+      url: postURL,
+      operation: 'screenshot',
+      errorType: error.name,
+      errorMessage: error.message,
+      stack: error.stack
+    });
+    
+    throw error;
+  }
+};
+
+module.exports = { postScreenshot };

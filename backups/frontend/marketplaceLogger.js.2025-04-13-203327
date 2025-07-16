@@ -1,0 +1,207 @@
+/**
+ * Frontend Marketplace Logger Service
+ * 
+ * @description Handles marketplace event logging from frontend to backend logging system
+ */
+
+import getAxiosInst from "./axios";
+import errorLogger from "./errorLogger";
+
+const API_SUB_ENDPOINT = "/log/marketplace";
+
+class MarketplaceLogger {
+  constructor() {
+    this.axios = getAxiosInst({ withAuth: false });
+  }
+
+  /**
+   * Log a marketplace event to the backend
+   * @param {string} eventType - Type of marketplace event
+   * @param {Object} eventData - Event data
+   */
+  async logEvent(eventType, eventData = {}) {
+    try {
+      const logData = {
+        timestamp: new Date().toISOString(),
+        type: eventType,
+        source: 'frontend',
+        ...eventData,
+        context: {
+          url: window.location.href,
+          userAgent: navigator.userAgent,
+          ...eventData.context
+        }
+      };
+
+      // Clean up undefined values
+      Object.keys(logData).forEach(key => 
+        logData[key] === undefined && delete logData[key]
+      );
+
+      // Send to backend logging endpoint
+      await this.axios.post(API_SUB_ENDPOINT, logData);
+      
+      // Log to console in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[MARKETPLACE] ${eventType}:`, eventData);
+      }
+    } catch (loggingError) {
+      // Fallback to console if logging fails
+      console.error('Failed to log marketplace event:', loggingError);
+      console.info('Original event:', eventType, eventData);
+      
+      // Log the error through the error logger
+      errorLogger.logError(loggingError, {
+        type: 'MARKETPLACE_LOGGING_ERROR',
+        context: {
+          eventType,
+          eventData
+        }
+      });
+    }
+  }
+
+  /**
+   * Log an NFT listing attempt
+   * @param {string} tokenId - NFT token ID
+   * @param {Object} details - Additional details
+   */
+  async logListingAttempt(tokenId, details = {}) {
+    await this.logEvent('LISTING_ATTEMPT', {
+      tokenId,
+      ...details
+    });
+  }
+
+  /**
+   * Log an NFT approval attempt
+   * @param {string} tokenId - NFT token ID
+   * @param {string} marketplaceAddress - Marketplace contract address
+   * @param {Object} details - Additional details
+   */
+  async logApprovalAttempt(tokenId, marketplaceAddress, details = {}) {
+    await this.logEvent('APPROVAL_ATTEMPT', {
+      tokenId,
+      marketplaceAddress,
+      ...details
+    });
+  }
+
+  /**
+   * Log an NFT approval result
+   * @param {string} tokenId - NFT token ID
+   * @param {boolean} success - Whether the approval was successful
+   * @param {Object} details - Additional details
+   */
+  async logApprovalResult(tokenId, success, details = {}) {
+    await this.logEvent('APPROVAL_RESULT', {
+      tokenId,
+      success,
+      ...details
+    });
+  }
+
+  /**
+   * Log an NFT listing result
+   * @param {string} tokenId - NFT token ID
+   * @param {string} saleId - Sale ID
+   * @param {boolean} success - Whether the listing was successful
+   * @param {Object} details - Additional details
+   */
+  async logListingResult(tokenId, saleId, success, details = {}) {
+    await this.logEvent('LISTING_RESULT', {
+      tokenId,
+      saleId,
+      success,
+      ...details
+    });
+  }
+
+  /**
+   * Log an NFT purchase attempt
+   * @param {string} saleId - Sale ID
+   * @param {string} tokenId - NFT token ID
+   * @param {Object} details - Additional details
+   */
+  async logPurchaseAttempt(saleId, tokenId, details = {}) {
+    await this.logEvent('PURCHASE_ATTEMPT', {
+      saleId,
+      tokenId,
+      ...details
+    });
+  }
+
+  /**
+   * Log an NFT purchase result
+   * @param {string} saleId - Sale ID
+   * @param {string} tokenId - NFT token ID
+   * @param {boolean} success - Whether the purchase was successful
+   * @param {Object} details - Additional details
+   */
+  async logPurchaseResult(saleId, tokenId, success, details = {}) {
+    await this.logEvent('PURCHASE_RESULT', {
+      saleId,
+      tokenId,
+      success,
+      ...details
+    });
+  }
+
+  /**
+   * Log an NFT bid attempt
+   * @param {string} saleId - Sale ID
+   * @param {string} tokenId - NFT token ID
+   * @param {string} amount - Bid amount
+   * @param {Object} details - Additional details
+   */
+  async logBidAttempt(saleId, tokenId, amount, details = {}) {
+    await this.logEvent('BID_ATTEMPT', {
+      saleId,
+      tokenId,
+      amount,
+      ...details
+    });
+  }
+
+  /**
+   * Log an NFT bid result
+   * @param {string} saleId - Sale ID
+   * @param {string} tokenId - NFT token ID
+   * @param {string} amount - Bid amount
+   * @param {boolean} success - Whether the bid was successful
+   * @param {Object} details - Additional details
+   */
+  async logBidResult(saleId, tokenId, amount, success, details = {}) {
+    await this.logEvent('BID_RESULT', {
+      saleId,
+      tokenId,
+      amount,
+      success,
+      ...details
+    });
+  }
+
+  /**
+   * Log a transaction error
+   * @param {string} tokenId - NFT token ID
+   * @param {Error} error - Error object
+   * @param {string} operation - Operation that failed (e.g., 'APPROVAL', 'LISTING')
+   * @param {Object} details - Additional details
+   */
+  async logTransactionError(tokenId, error, operation, details = {}) {
+    await this.logEvent('TRANSACTION_ERROR', {
+      tokenId,
+      operation,
+      error: {
+        message: error.message,
+        code: error.code,
+        name: error.name,
+        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      },
+      ...details
+    });
+  }
+}
+
+// Export singleton instance
+export default new MarketplaceLogger();

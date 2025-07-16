@@ -1,0 +1,172 @@
+# Environment variables
+.env
+.env.*
+.env.local
+.env.development
+.env.test
+.env.production
+.env.deployed
+*.env
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Build outputs
+build/
+dist/
+out/
+*.tgz
+*.tar.gz
+*.tar
+*.zip
+
+# Logs
+logs/
+*.log
+logfile.log
+schedular.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+.nyc_output/
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.test
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Private keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+credentials/
+tokens/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# Compiled binary addons
+build/Release
+
+# MongoDB data directory
+data/db/
+
+# Redis dump file
+dump.rdb
+
+# Application specific
+uploads/
+.cache/
+
+# Social media credentials and tokens
+automation-logs/
+metrics/
+analytics/
+queue-backup/
+action-cache/
+
+# Hardhat files
+cache/
+artifacts/
+
+# Test files that might contain sensitive data
+test-results/
+coverage/
+
+# Sync and temporary script files
+sync-*.ps1
+sync-*.log
+*-sync-log.txt
+sync-progress.log
+
+# API response files that might contain sensitive data
+api-*.json
+*-response*.json
+*-error*.json
